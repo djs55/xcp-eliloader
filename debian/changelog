@@ -1,3 +1,9 @@
+xcp-eliloader (0.1-2ubuntu1) oneiric; urgency=low
+
+  * Ubuntu stamp
+
+ -- Mike McClurg <mike.mcclurg@citrix.com>  Tue, 06 Dec 2011 21:34:33 +0000
+
 xcp-eliloader (0.1-2) unstable; urgency=low
 
   * Fixed an issue where the path for guest support files was incorrect
