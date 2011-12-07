@@ -1,3 +1,9 @@
+xcp-eliloader (0.1-4ubuntu1) oneiric; urgency=low
+
+  * Ubuntu stamp
+
+ -- Mike McClurg <mike.mcclurg@citrix.com>  Wed, 07 Dec 2011 12:16:04 +0000
+
 xcp-eliloader (0.1-4) unstable; urgency=low
 
   * Add manpage for eliloader
