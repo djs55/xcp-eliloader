@@ -1,3 +1,9 @@
+xcp-eliloader (0.1-5) unstable; urgency=low
+
+  * Added a watch file.
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 19 Dec 2011 12:09:28 +0000
+
 xcp-eliloader (0.1-4) unstable; urgency=low
 
   * Add manpage for eliloader
