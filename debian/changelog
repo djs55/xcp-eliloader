@@ -1,8 +1,9 @@
-xcp-eliloader (0.1-6) oneiric; urgency=low
+xcp-eliloader (0.2-1) unstable; urgency=low
 
+  * New upstream version.
   * Fix the guest-installer directory path
 
- -- Jonathan Ludlam <jonathan.ludlam@eu.citrix.com>  Fri, 16 Dec 2011 11:03:05 +0000
+ -- Mike McClurg <mike.mcclurg@citrix.com>  Tue, 24 Jul 2012 21:38:29 +0100
 
 xcp-eliloader (0.1-5) unstable; urgency=low
 
