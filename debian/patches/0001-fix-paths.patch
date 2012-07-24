@@ -1,0 +1,22 @@
+From: Mike McClurg <mike.mcclurg@citrix.com>
+Date: Tue, 24 Jul 2012 21:47:34 +0100
+Subject: fix paths
+
+---
+ eliloader.py |    2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/eliloader.py b/eliloader.py
+index 0ec08fe..0f61f71 100755
+--- a/eliloader.py
++++ b/eliloader.py
+@@ -98,7 +98,7 @@ rounds = {
+     DISTRO_RHLIKE: 1, DISTRO_SLESLIKE: 2, DISTRO_DEBIANLIKE: 1, DISTRO_PYGRUB: 1
+     }
+ 
+-guest_installer_dir = "/opt/xensource/packages/files/guest-installer"
++guest_installer_dir = "/usr/share/xcp/packages/files/guest-installer"
+ mapfiles = [ f for f in os.listdir(guest_installer_dir) if f.endswith('.map') ]
+ 
+ # We can sometimes tweak an installer's initrd to give it extra features, e.g.
+-- 
