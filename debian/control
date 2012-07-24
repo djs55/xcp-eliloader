@@ -1,0 +1,35 @@
+Source: xcp-eliloader
+Section: admin
+Priority: extra
+Maintainer: Pkg Xen <pkg-xen-devel@lists.alioth.debian.org>
+Uploaders: Jon Ludlam <jonathan.ludlam@eu.citrix.com>, Thomas Goirand <zigo@debian.org>, Mike McClurg <mike.mcclurg@citrix.com>
+Build-Depends: debhelper (>= 8.0.0), python-all (>= 2.6.6-3~)
+XS-Python-Version: >= 2.6
+Standards-Version: 3.9.2
+Homepage: https://github.com/xen-org
+
+Package: xcp-eliloader
+Architecture: all
+Depends: ${misc:Depends}, ${python:Depends}
+Enhances: xcp-xapi
+Description: XenAPI's bootloader for EL-based guests
+ The Xen Cloud Platform (XCP) is an open source enterprise-ready server
+ virtualization and cloud computing platform, with support for a range of
+ guest operating systems, Linux network and storage support.
+ .
+ XCP addresses the needs of cloud providers, hosting services and data centers
+ by combining the isolation and multitenancy capabilities of the Xen hypervisor
+ with enhanced security, storage and network virtualization technologies to
+ offer a rich set of virtual infrastructure cloud services. The platform
+ also address user requirements for security, availability, performance and
+ isolation across both private and public clouds.
+ .
+ XCP consolidates server workloads, enables savings in power, cooling, and
+ management costs and thus contributing to environmentally sustainable
+ computing, an increased ability to adapt to ever-changing IT environments,
+ an optimized use of existing hardware, and an improved level of IT
+ reliability.
+ .
+ This package provides a bootloader for EL-based Linux distributions. This
+ bootloader takes care of booting PV guests for distributions that don't have
+ good support for operation as a Xen domU guest.
