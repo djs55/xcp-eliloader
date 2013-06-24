@@ -1,16 +1,4 @@
-#!/usr/bin/python
-# Copyright (c) 2011 Citrix Systems, Inc.
-#
-# This program is free software; you can redistribute it and/or modify
-# it under the terms of the GNU Lesser General Public License as published
-# by the Free Software Foundation; version 2.1 only. with the special
-# exception on linking described in file LICENSE.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU Lesser General Public License for more details.
-
+#!/usr/bin/env python
 ##
 # Bootloader for EL-based distros that support Xen. 
 #
@@ -51,10 +39,7 @@ import gzip
 import traceback
 import syslog
 import md5
-import re
 import XenAPI
-import xcp.cmd
-import xcp.logger
 
 sys.path.append("/usr/lib/python")
 
@@ -62,7 +47,6 @@ BOOTDIR = "/var/run/xend/boot"
 PYGRUB = "/usr/bin/pygrub"
 
 
-xcp.logger.logToSyslog()
 syslog.openlog("ELILOADER")
 log_details = False
 # Set this if you want to see verbose logging on both me and my pygrubs
@@ -76,10 +60,8 @@ def witter(foo):
     print >>sys.stderr, foo
 
 class PygrubError(Exception):
-    def __init__(self, rc, err):
-        # Pygrub reports errors with a Runtime exception.
-        m = re.search('RuntimeError: (.*)$', err)
-        self.value = "Pygrub error (%d): %s" % (rc, m.group(0))
+    def __init__(self, value):
+        self.value = value
     def __str__(self):
         return repr(self.value)
 
@@ -99,9 +81,7 @@ rounds = {
     }
 
 guest_installer_dir = "/opt/xensource/packages/files/guest-installer"
-mapfiles = []
-if os.path.exists(guest_installer_dir):
-	mapfiles = [ f for f in os.listdir(guest_installer_dir) if f.endswith('.map') ]
+mapfiles = [ f for f in os.listdir(guest_installer_dir) if f.endswith('.map') ]
 
 # We can sometimes tweak an installer's initrd to give it extra features, e.g.
 # CD installs in PV guests.  These dictionaries specify the cpio archive used
@@ -186,7 +166,8 @@ def mount(dev, mountpoint, options = None, fstype = None):
     cmd.append(dev)
     cmd.append(mountpoint)
 
-    rc = xcp.cmd.runCmd(cmd, False, False)
+    rc = subprocess.Popen(cmd, stdout = subprocess.PIPE,
+                          stderr = subprocess.PIPE).wait()
     if rc != 0:
         raise MountFailureException, cmd
 
@@ -209,13 +190,12 @@ class NfsRepo:
             rest = repo[6:]
             if not "/" in rest:
                 raise InvalidSource, "NFS path was not in a valid format"
-            server, dir = rest.split("/", 1)
-            dir = "/" + dir
+            server, path = rest.split("/", 1)
             server = server.rstrip(":")
-        else:
-            # work out the components:
-            [_, server, dir] = repo.split(':', 2)
+            repo = "nfs:%s:/%s" % (server, path)
 
+        # work out the components:
+        [_, server, dir] = repo.split(':')
         if dir[0] != '/':
             raise InvalidSource, "Directory part of NFS path was not an absolute path."
 
@@ -235,7 +215,7 @@ class NfsRepo:
         # os module may have already been unloaded
         import os
         if self.mntpoint:
-            xcp.cmd.runCmd(["umount", self.mntpoint])
+            os.system("umount %s" % self.mntpoint)
             os.rmdir(self.mntpoint)
     
 # Creation of an CdromRepo object triggers a mount, and the mountpoint is stored int obj.mntpoint.
@@ -259,7 +239,7 @@ class CdromRepo:
         # os module may have already been unloaded
         import os
         if self.mntpoint:
-            xcp.cmd.runCmd(["umount", self.mntpoint])
+            os.system("umount %s" % self.mntpoint)
             os.rmdir(self.mntpoint)
 
 # Modified from host-installer.hg/util.py to support not_really flag
@@ -291,10 +271,6 @@ def fetchFile(source, dest = None, not_really = False):
         # Actually get the file
         try:
             fd = urllib2.urlopen(source)
-            try:
-                length = int(fd.info().getheader('content-length', None));
-            except ValueError:
-                length = None
         except OSError, e:
             # file not found? (from file://)
             if e.errno == 2:
@@ -318,12 +294,10 @@ def fetchFile(source, dest = None, not_really = False):
                 raise ResourceNotFound, source
             else:
                 raise
-        fd_dest = open(dest, 'wb')
+        fd_dest = open(dest, 'w')
         shutil.copyfileobj(fd, fd_dest)
-        fd.close()
-        if length is not None and length != fd_dest.tell():
-            raise IOError("Closed connection during download")
         fd_dest.close()
+        fd.close()
     else:
         raise InvalidSource, "Unknown source type."
 
@@ -368,20 +342,13 @@ def switchBootloader(vm_uuid, target_bootloader = "pygrub"):
     finally:
         session.logout()
 
-def unpack_cpio_initrd(filename, working_dir):
+def unpack_cpio_initrd(filename, working_dir, is_compressed = True):
     # we'll assume it's a gzipped cpio for now...
     cpio_archive = close_mkstemp(dir = "/tmp", prefix = "initrd-")
-    gz = open(filename)
-    start = gz.read(2)
-    if start == "\037\213":
-        gz.close()
+    if is_compressed:
         gz = gzip.GzipFile(filename)
-    elif start == "\x5d\x00":
-        gz.close()
-        lz = subprocess.Popen(["/usr/bin/lzcat", filename], stdout = subprocess.PIPE)
-        gz = lz.stdout
     else:
-        gz.seek(0)
+        gz = open(filename)
     cpio = subprocess.Popen(["/bin/cpio", "-idu", "--quiet"], cwd = working_dir,
                             stdin = subprocess.PIPE)
     while True:
@@ -413,6 +380,7 @@ def md5sum(filename):
     fd = open(filename, "r")
     try:
         sumobj = md5.new()
+        data = ""
         while True:
             data = fd.read(1024 * 1024)
             if data == "":
@@ -461,8 +429,8 @@ def tweak_initrd(filename):
             raise SupportPackageMissing, "Dom0 does not contain a required file: %s" % cpio_overlay
 
         # unpack the vendor initrd, then unpack our changes over it:
-        unpack_cpio_initrd(filename, working_dir)
-        unpack_cpio_initrd(cpio_overlay, working_dir)
+        unpack_cpio_initrd(filename, working_dir, True)
+        unpack_cpio_initrd(cpio_overlay, working_dir, False)
 
         # now repack to make the final image:
         initrd_path = close_mkstemp(dir = BOOTDIR, prefix="tweaked-initrd-")
@@ -481,7 +449,7 @@ def tweak_initrd(filename):
         # unpack the vendor initrd, then unpack our changes over it:
         initrd_path = close_mkstemp(dir = BOOTDIR, prefix="tweaked-initrd-")
         mount_ext2_initrd(filename, initrd_path, working_dir)
-        unpack_cpio_initrd(cpio_overlay, working_dir)
+        unpack_cpio_initrd(cpio_overlay, working_dir, False)
         umount(working_dir)
 
     return initrd_path
@@ -604,22 +572,13 @@ def debian_first_boot_handler(vm, repo_url, other_config):
             "and this is required for the selected distribution type."
 
     if other_config['install-repository'] == "cdrom":
-        cdrom_dirs = { 'i386': 'install.386/',
-                       'amd64': 'install.amd/',
-                       'x86_64': 'install.amd/' }
-        vmlinuz_url = repo_url + cdrom_dirs[other_config['install-arch']] + "xen/vmlinuz"
-        ramdisk_url = repo_url + cdrom_dirs[other_config['install-arch']] + "xen/initrd.gz"
-        if not fetchFile(vmlinuz_url, not_really=True):
-            vmlinuz_url = repo_url + cdrom_dirs[other_config['install-arch']] + "vmlinuz"
-            ramdisk_url = repo_url + cdrom_dirs[other_config['install-arch']] + "initrd.gz"
-        if not fetchFile(vmlinuz_url, not_really=True):
-            vmlinuz_url = repo_url + "install/vmlinuz"
-            ramdisk_url = repo_url + "install/initrd.gz"
+        cdrom_dirs = { 'i386': 'install.386/xen/',
+                       'amd64': 'install.amd/xen/',
+                       'x86_64': 'install.amd/xen/' }
+        vmlinuz_url = repo_url + cdrom_dirs[other_config['install-arch']] + "vmlinuz"
+        ramdisk_url = repo_url + cdrom_dirs[other_config['install-arch']] + "initrd.gz"
     else:
-        comp = repo_url.split('/dists/', 1)
-        if len(comp) != 2 or comp[1].replace('/','') == "":
-            repo_url += "dists/%s/" % other_config['debian-release']
-        boot_dir = "main/installer-%s/current/images/netboot/xen/" % other_config['install-arch']
+        boot_dir = "dists/%s/main/installer-%s/current/images/netboot/xen/" % (other_config['debian-release'], other_config['install-arch'])
         vmlinuz_url = repo_url + boot_dir + "vmlinuz"
         ramdisk_url = repo_url + boot_dir + "initrd.gz"
 
@@ -676,11 +635,12 @@ def pygrub_first_boot_handler(vm_uuid, repo_url, other_config):
         return ret
     
     if other_config['install-repository'] == "cdrom":
-        (rc, out, err) = xcp.cmd.runCmd([PYGRUB] + sys.argv[1:], True, True)
+        pygrub = subprocess.Popen([PYGRUB] + sys.argv[1:], stdout=subprocess.PIPE)
+        rc = pygrub.wait()
         if rc != 0:
             raise InvalidSource, "Error %d running %s" % (rc,PYGRUB)
     
-        output = pygrub_parse(out)
+        output = pygrub_parse(pygrub.stdout.readline())
 
         if not output.has_key('kernel'):
             raise InvalidSource, "No kernel in pygrub output"
@@ -809,11 +769,11 @@ def handle_second_boot(vm, img, args, other_config):
         # If pygrub with no options fails then this must be one of the problematic versions, in
         # which case /we/ need to tell pygrub where to find the kernel and initrd.
 
-        cmd = ["pygrub", "-q", "-n", img]
-        (rc, out, err) = xcp.cmd.runCmd(cmd, True, True)
+        cmd = "pygrub -q -n %s &>/dev/null" % img
+        rc = os.system(cmd)
         rc/=256
         if rc > 1:
-            raise PygrubError, rc, err
+            raise PygrubError, str(rc)
 
         if rc != 0:
             # need to emulate domUloader.  This is done by finding a kernel that
@@ -828,11 +788,11 @@ def handle_second_boot(vm, img, args, other_config):
             witter("SLES_LIKE: Pygrub failed, trying again..")
             for k, i in [ ("/%s" % kernel, "/%s" % initrd ), ("/boot/%s" % kernel , "/boot/%s" % initrd ) ]:
                 witter("SLES_LIKE: Trying %s and %s" % (k, i) )
-                cmd = ["pygrub", "-n", "--kernel", k, "--ramdisk", i, img]
-                (rc, out, err) = xcp.cmd.runCmd(cmd, True, True)
+                cmd = "pygrub -n --kernel %s --ramdisk %s %s &>/dev/null" % (k, i, img)
+                rc = os.system(cmd)
                 rc/=256
                 if rc > 1:
-                    raise PygrubError, rc, err
+                    raise PygrubError, str(rc)
 
                 if rc == 0:
                     # found it - make the setting permanent:
@@ -911,7 +871,7 @@ def main():
         if opt in ["--args", "--extra_args", "--default_args"]:
             args += val + " "
 
-    if len(mandargs) < 1:
+    if len(mandargs) > 1:
         raise UsageError
 
     img = mandargs[0]
@@ -948,11 +908,23 @@ if __name__ == "__main__":
     try:
         sys.exit(main())
     except APILevelException, e:
-        raise RuntimeError, e.apifmt()
+        ex = sys.exc_info()
+        err = traceback.format_exception(*ex)
+
+        # print the error out nicely
+        print >>sys.stderr, e.apifmt()
+
+        # now log the traceback to syslog
+        for exline in err:
+            syslog.syslog(syslog.LOG_USER | syslog.LOG_ERR, exline)
+        sys.exit(1)
     except PygrubError, x:
-        raise RuntimeError, str(x)
+        msg = str(x)
+        print >> sys.stderr, msg
+        if log_details: syslog.syslog(syslog.LOG_USER | syslog.LOG_ERR, "Pygrub said:"+ msg)
+        sys.exit(3)
     except UsageError, e:
         msg = "Invalid usage. Usage: eliloader --vm <vm> <image>"
         print >> sys.stderr, msg
         syslog.syslog(syslog.LOG_USER | syslog.LOG_ERR, msg)
-        raise RuntimeError, "Invalid command line arguments."
+        sys.exit(2)
